@@ -18,26 +18,33 @@ def check_gradient(f, x, delta=1e-5, tol=1e-4):
     assert isinstance(x, np.ndarray)
     assert x.dtype == np.float
 
+    orig_x = x.copy()
     fx, analytic_grad = f(x)
-    analytic_grad = analytic_grad.copy()
+    assert np.all(np.isclose(orig_x, x, tol)), "Functions shouldn't modify input variables"
 
     assert analytic_grad.shape == x.shape
+    analytic_grad = analytic_grad.copy()
 
     it = np.nditer(x, flags=['multi_index'], op_flags=['readwrite'])
-    while not it.finished:
-        ix = it.multi_index
-        analytic_grad_at_ix = analytic_grad[ix]
-        numeric_grad_at_ix = 0
 
-        # TODO Copy from previous assignment
-        raise Exception("Not implemented!")
+    with it:
+      while not it.finished:
+          ix = it.multi_index
+          analytic_grad_at_ix = analytic_grad[ix]
 
-        if not np.isclose(numeric_grad_at_ix, analytic_grad_at_ix, tol):
-            print("Gradients are different at %s. Analytic: %2.5f, Numeric: %2.5f" % (
+          # Compute value of numeric gradient of f to idx
+          orig_x[ix] = x[ix] + delta
+          f0 = f(orig_x)[0]
+          orig_x[ix] = x[ix] - delta
+          f1 = f(orig_x)[0]
+          numeric_grad_at_ix = (f0 - f1)/(2*delta)
+
+          if not np.isclose(numeric_grad_at_ix, analytic_grad_at_ix, tol):
+              print("Gradients are different at %s. Analytic: %2.5f, Numeric: %2.5f" % (
                   ix, analytic_grad_at_ix, numeric_grad_at_ix))
-            return False
+              return False
 
-        it.iternext()
+          it.iternext()
 
     print("Gradient check passed!")
     return True
