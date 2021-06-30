@@ -94,9 +94,12 @@ class FullyConnectedLayer:
         self.X = None
 
     def forward(self, X):
-        # TODO: Implement forward pass
+        # Implement forward pass
         # Your final implementation shouldn't have any loops
-        raise Exception("Not implemented!")
+        self.X = X
+        result = X @ self.W.value + self.B.value
+
+        return result
 
     def backward(self, d_out):
         """
@@ -112,17 +115,21 @@ class FullyConnectedLayer:
         d_result: np array (batch_size, n_input) - gradient
           with respect to input
         """
-        # TODO: Implement backward pass
+        # Implement backward pass
         # Compute both gradient with respect to input
         # and gradients with respect to W and B
         # Add gradients of W and B to their `grad` attribute
 
         # It should be pretty similar to linear classifier from
         # the previous assignment
+        self.W.grad += self.X.T @ d_out
 
-        raise Exception("Not implemented!")
+        # TODO: Figure out what's it meaning. Guess equation by gradient_check output result.
+        self.B.grad += np.mean(d_out, axis=0) * d_out.shape[0]
+
+        d_input = d_out @ self.W.value.T
 
         return d_input
 
     def params(self):
-        return {'W': self.W, 'B': self.B}
+        return {'W': self.W, 'B': self.B,}
