@@ -25,5 +25,8 @@ class MomentumSGD:
         Returns:
         updated_weights, np array same shape as w
         '''
-        # TODO Copy from the previous assignment
-        raise Exception("Not implemented!")
+        # Copy from the previous assignment
+        self.velocity = self.momentum * self.velocity - learning_rate * d_w
+        updated_weights = w + self.velocity
+
+        return updated_weights
