@@ -196,15 +196,14 @@ class ConvolutionalLayer:
 
     def forward(self, X):
         batch_size, height, width, channels = X.shape
-        filter_height = self.filter_size
-        filter_width = self.filter_size
-        out_height = height - filter_height + 2*self.padding + 1
-        out_width = width - filter_width + 2*self.padding + 1
+        out_height = height - self.filter_size + 2*self.padding + 1
+        out_width = width - self.filter_size + 2*self.padding + 1
         result = np.empty((batch_size, out_height, out_width, self.out_channels))
         self.X = X
 
-        I = np.zeros((batch_size, height+2*self.padding, width+2*self.padding, channels))
-        I[:, self.padding:self.padding + height, self.padding:self.padding + width, :] = X
+        X_padded = np.zeros((batch_size, height+2*self.padding, width+2*self.padding, channels))
+        X_padded[:, self.padding:self.padding + height, self.padding:self.padding + width, :] = X
+        self.X_padded = X_padded
 
         # Implement forward pass
         # Hint: setup variables that hold the result
@@ -215,9 +214,10 @@ class ConvolutionalLayer:
         for y in range(out_height):
             for x in range(out_width):
                 # Implement forward pass for specific location
-                receptive_field = I[:, y:y+filter_height, x:x+filter_width].reshape(batch_size, -1)
+                receptive_field = X_padded[:, y:y+self.filter_size, x:x+self.filter_size]
+                receptive_field_col = receptive_field.reshape(batch_size, -1)
                 W = self.W.value.reshape(-1, self.out_channels)
-                result[:, y, x] = receptive_field @ W + self.B.value
+                result[:, y, x, :] = receptive_field_col @ W + self.B.value
 
         return result
 
@@ -230,9 +230,7 @@ class ConvolutionalLayer:
         batch_size, height, width, channels = self.X.shape
         _, out_height, out_width, out_channels = d_out.shape
 
-        I = np.zeros((batch_size, height+2*self.padding, width+2*self.padding, channels))
-        I[:, self.padding:self.padding + height, self.padding:self.padding + width, :] = self.X
-        d_input =  np.zeros_like(I)
+        d_input =  np.zeros_like(self.X_padded)
 
         # Implement backward pass
         # Same as forward, setup variables of the right shape that
@@ -246,38 +244,20 @@ class ConvolutionalLayer:
                 # Aggregate gradients for both the input and
                 # the parameters (W and B)
 
-                r = I[:, y:y+self.filter_size, x:x+self.filter_size]
-                I_column = r.reshape(batch_size, -1)
+                X_expanded = self.X_padded[:, y:y+self.filter_size, x:x+self.filter_size, :, np.newaxis]
+                d_out_expanded = d_out[:, y, x, np.newaxis, np.newaxis, np.newaxis, :]
+                self.W.grad += np.sum(d_out_expanded * X_expanded, axis=0)
 
-                d = d_out[:, y, x]
-
-
-                # d_W = I_column.T @ d
-                # self.W.grad += d_W.reshape(self.out_channels, self.filter_size,
-                #                            self.filter_size, self.in_channels)
-
-
-                a = np.zeros((out_channels ,self.filter_size*self.filter_size*channels))
-
-                # TODO: Refactor a loop
-                for i in range(batch_size):
-                    a = I_column[i] * d[i][:, np.newaxis]
-                    f = a.reshape(self.out_channels, self.filter_size,
-                                  self.filter_size, self.in_channels)
-                    self.W.grad += np.moveaxis(f, 0, 3)
-             
-                self.B.grad += np.sum(d, axis=0).reshape(-1)
+                self.B.grad += np.sum(d_out[:, y, x], axis=0).reshape(-1)
 
                 W = self.W.value.T.reshape(out_channels, -1)
-
-                d_field_column = d @ W
-               
+                d_field_column = d_out[:, y, x] @ W
                 d_field_inverse = d_field_column.reshape(batch_size, channels,
                                                          self.filter_size, self.filter_size)
                 d_field = np.moveaxis(d_field_inverse.T, 3, 0)
                 d_input[:, y:y+self.filter_size, x:x+self.filter_size] += d_field
 
-        return d_input[:, self.padding:self.padding + height, self.padding:self.padding + width, :]
+        return d_input[:, self.padding:self.padding+height, self.padding:self.padding+width, :]
 
     def params(self):
         return { 'W': self.W, 'B': self.B }
@@ -305,24 +285,25 @@ class MaxPoolingLayer:
 
         X = np.moveaxis(X, 3, 1)
         self.M = np.zeros_like(X)
-        out_height = (height - self.pool_size)/self.stride + 1
-        out_width = (width - self.pool_size)/self.stride + 1
-        result = np.empty((batch_size, int(out_height), int(out_width), channels))
-        j, i = 0, 0
+        out_height = int((height - self.pool_size)/self.stride + 1)
+        out_width = int((width - self.pool_size)/self.stride + 1)
+        result = np.empty((batch_size, out_height, out_width, channels))
 
-        for y in range(0, height, self.stride):
-            for x in range(0, width, self.stride):
-                region = X[:, :, y:y+self.pool_size, x:x+self.pool_size]
+        for y in range(out_height):
+            for x in range(out_width):
+                region = X[:,
+                           :,
+                           y*self.stride:y*self.stride+self.pool_size,
+                           x*self.stride:x*self.stride+self.pool_size]
                 region_col = region.reshape(batch_size, channels, -1)
                 max_items = region_col.max(axis=2)
-                result[:, j, i, :] = max_items
+
+                result[:, y, x, :] = max_items
 
                 maximum_region = np.zeros_like(region)
                 indices = (region_col == max_items[:,:, np.newaxis]).reshape(region.shape)
                 maximum_region[indices] = 1.0
-                self.M[:, :, y:y+self.pool_size, x:x+self.pool_size] = maximum_region
-
-                j, i = j+1, i+1
+                self.M[:, :, y*self.stride:y*self.stride+self.pool_size, x*self.stride:x*self.stride+self.pool_size] = maximum_region
 
         self.M = np.moveaxis(self.M, 1, 3)
 
@@ -330,17 +311,14 @@ class MaxPoolingLayer:
 
     def backward(self, d_out):
         # Implement maxpool backward pass
-        batch_size, height, width, channels = self.M.shape
         _, out_height, out_width, out_channels = d_out.shape
-        j, i = 0, 0
 
-        for y in range(0, height, self.stride):
-            for x in range(0, width, self.stride):
-                region = self.M[:, y:y+self.pool_size, x:x+self.pool_size, :]
-                d_region = d_out[:, i, j, :]
-                d_region = d_region[:, np.newaxis, np.newaxis, :]
+        for y in range(out_height):
+            for x in range(out_width):
+                region = self.M[:, y*self.stride:y*self.stride+self.pool_size,
+                                x*self.stride:x * self.stride+self.pool_size, :]
+                d_region = d_out[:, np.newaxis, np.newaxis, y, x, :]
                 region *= d_region
-                i, j = i+1, j+1
 
         return self.M
 
